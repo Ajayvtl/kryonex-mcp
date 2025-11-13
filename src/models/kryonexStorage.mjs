@@ -1,81 +1,112 @@
+/*
+ * FILE: ./src/kryonexStorage.mjs
+ * REPO: https://github.com/Ajayvtl/kryonex-mcp
+ *
+ * Project Intelligence Framework V1 — kryonexStorage (Upgraded)
+ * ------------------------------------------------------------------
+ * Centralized storage manager responsible for:
+ *  - Loading & saving .kryonex/config.json
+ *  - Providing per-project paths (vector store, memory store, logs, cache)
+ *  - Ensuring directory structure exists
+ *  - Managing multi-project support
+ *
+ * Fully MCP-safe (NO console.log)
+ */
+
 import path from 'path';
-import { promises as fs } from 'fs';
-import { resolveKryonexPath } from '../utils/pathResolver.mjs';
-import { writeFileSafe, readFileSafe } from "../utils/fileUtils.mjs";
-// Assuming 'my-new-server' is the project name for this MCP server
-const PROJECT_NAME = 'my-new-server';
+import fileUtils from './fileUtils.mjs';
 
-/**
- * Ensures the .kryonex directory and any specified subdirectories exist within the project.
- *
- * @param {string} projectName - The name of the project folder.
- * @param {string[]} subPaths - Optional subdirectories within .kryonex to ensure.
- */
-async function ensureKryonexDir(projectName, ...subPaths) {
-  const kryonexPath = resolveKryonexPath(projectName, ...subPaths);
+// --------------------------------------------------------------
+// DEFAULT CONFIG
+// --------------------------------------------------------------
+const DEFAULT_CONFIG = {
+  chunkSize: 1000,
+  skipFolders: ['node_modules', '.git', '.kryonex'],
+  skipExtensions: ['.lock'],
+  maxFileSize: 5 * 1024 * 1024,
+  embeddingModelText: 'Xenova/all-MiniLM-L6-v2',
+  embeddingModelCode: 'Xenova/codebert-base',
+  ragTopK: 8,
+};
+
+// --------------------------------------------------------------
+// PATH RESOLUTION
+// --------------------------------------------------------------
+export async function getProjectStorePaths(projectRoot) {
+  const root = fileUtils.resolveProjectRoot(projectRoot);
+  const kxRoot = path.join(root, '.kryonex');
+
+  const paths = {
+    kryonexRoot: kxRoot,
+    configPath: path.join(kxRoot, 'config.json'),
+    vectorStorePath: path.join(kxRoot, 'vector-store', 'vectors.json'),
+    memoryStorePath: path.join(kxRoot, 'memory-store', 'memory.json'),
+    logsPath: path.join(kxRoot, 'logs'),
+    cachePath: path.join(kxRoot, 'cache'),
+  };
+
+  // Ensure directories exist
+  await fileUtils.ensureDir(kxRoot);
+  await fileUtils.ensureDir(path.join(kxRoot, 'vector-store'));
+  await fileUtils.ensureDir(path.join(kxRoot, 'memory-store'));
+  await fileUtils.ensureDir(paths.logsPath);
+  await fileUtils.ensureDir(paths.cachePath);
+
+  return paths;
+}
+
+// --------------------------------------------------------------
+// LOAD CONFIG
+// --------------------------------------------------------------
+export async function loadKryonexConfig(projectRoot) {
+  const { configPath } = await getProjectStorePaths(projectRoot);
+
+  if (!(await fileUtils.pathExists(configPath))) {
+    await fileUtils.atomicWrite(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    return DEFAULT_CONFIG;
+  }
+
   try {
-    await fs.mkdir(kryonexPath, { recursive: true });
-  } catch (error) {
-    if (error.code !== 'EEXIST') {
-      console.error(`Error ensuring .kryonex directory at ${kryonexPath}:`, error);
-      throw error;
-    }
+    const raw = await fileUtils.readFileText(configPath);
+    const userCfg = JSON.parse(raw);
+    return { ...DEFAULT_CONFIG, ...userCfg };
+  } catch {
+    return DEFAULT_CONFIG;
   }
 }
 
-/**
- * Save JSON data into the .kryonex folder of the specified project.
- *
- * @param {string} projectName - The name of the project folder.
- * @param {string} fileName - The name of the file (without .json extension).
- * @param {object} data - The JSON data to save.
- * @param {string[]} subPaths - Optional subdirectories within .kryonex.
- * @returns {Promise<{ success: boolean, path?: string, error?: string }>}
- */
-export async function save(projectName, fileName, data, ...subPaths) {
-  try {
-    await ensureKryonexDir(projectName, ...subPaths);
-    const filePath = resolveKryonexPath(projectName, ...subPaths, `${fileName}.json`);
-
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
-
-    // IMPORTANT: logs MUST go to stderr to not break MCP
-    console.error(`Kryonex: saved -> ${filePath}`);
-
-    return { success: true, path: filePath };
-  } catch (err) {
-    console.error('Kryonex save error:', err);
-    return { success: false, error: err.message };
-  }
+// --------------------------------------------------------------
+// SAVE CONFIG
+// --------------------------------------------------------------
+export async function saveKryonexConfig(projectRoot, cfg) {
+  const { configPath } = await getProjectStorePaths(projectRoot);
+  const merged = { ...DEFAULT_CONFIG, ...cfg };
+  await fileUtils.atomicWrite(configPath, JSON.stringify(merged, null, 2));
+  return merged;
 }
 
+// --------------------------------------------------------------
+// CLEAR STORAGE (vector, memory, cache)
+// --------------------------------------------------------------
+export async function clearKryonexData(projectRoot) {
+  const paths = await getProjectStorePaths(projectRoot);
+  await fileUtils.removePath(paths.vectorStorePath);
+  await fileUtils.removePath(paths.memoryStorePath);
+  await fileUtils.removePath(paths.cachePath);
+  await fileUtils.ensureDir(paths.cachePath);
 
-/**
- * Read JSON data from the .kryonex folder of the specified project.
- *
- * @param {string} projectName - The name of the project folder.
- * @param {string} fileName - The name of the file (without .json extension).
- * @param {string[]} subPaths - Optional subdirectories within .kryonex.
- * @returns {Promise<object | null>} The parsed JSON data, or null if not found/error.
- */
-export async function load(projectName, fileName, ...subPaths) {
-  try {
-    const filePath = resolveKryonexPath(projectName, ...subPaths, `${fileName}.json`);
-
-    // Check if the file exists before attempting to read
-    try {
-      await fs.access(filePath, fs.constants.F_OK); // Check if file exists
-    } catch (error) {
-      if (error.code === 'ENOENT') {
-        return null; // File not found, return null
-      }
-      throw error; // Other access error
-    }
-
-    const data = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(data);
-  } catch (err) {
-    console.error('Kryonex load error:', err);
-    return null;
-  }
+  return { cleared: true };
 }
+
+// --------------------------------------------------------------
+// EXPORTS
+// --------------------------------------------------------------
+const kryonexStorage = {
+  DEFAULT_CONFIG,
+  getProjectStorePaths,
+  loadKryonexConfig,
+  saveKryonexConfig,
+  clearKryonexData,
+};
+
+export default kryonexStorage;
