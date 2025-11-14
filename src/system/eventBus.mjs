@@ -2,23 +2,52 @@
 import EventEmitter from "events";
 
 class EventBus extends EventEmitter {
-  constructor({db, semanticStore}) {
+  constructor({ db = null, semanticStore = null } = {}) {
     super();
     this.db = db;
     this.semanticStore = semanticStore;
   }
 
-  async emitPersisted(eventName, payload) {
-    // Persist event to DB for audit trail (kryonexDb.saveEvent should exist)
+  /**
+   * Emit an event and persist it if db.saveEvent exists.
+   * payload should be serializable.
+   */
+  async emitPersisted(eventName, payload = {}) {
     try {
-      if (this.db && this.db.saveEvent) {
-        await this.db.saveEvent({ eventName, payload, ts: Date.now() });
+      // persist to DB for audit if available
+      if (this.db && typeof this.db.saveEvent === "function") {
+        try {
+          await this.db.saveEvent({ eventName, payload, ts: new Date().toISOString() });
+        } catch (err) {
+          // don't block on persist failure
+          console.error("[EventBus] saveEvent failed:", err);
+        }
       }
-    } catch (err) {
-      // swallow persist errors but log
-      console.error("eventBus.persist error", err);
+
+      // Also optionally save a short transcript into semantic store for RAG
+      if (this.semanticStore && typeof this.semanticStore.saveToolTranscript === "function") {
+        try {
+          await this.semanticStore.saveToolTranscript({
+            id: `event-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+            eventName,
+            payload,
+            ts: new Date().toISOString(),
+          });
+        } catch (err) {
+          // non-fatal
+          console.error("[EventBus] semanticStore.saveToolTranscript failed:", err);
+        }
+      }
+    } catch (e) {
+      console.error("[EventBus] persist error:", e);
     }
-    this.emit(eventName, payload);
+
+    // emit to in-memory subscribers
+    try {
+      this.emit(eventName, payload);
+    } catch (e) {
+      console.error("[EventBus] emit error:", e);
+    }
   }
 }
 

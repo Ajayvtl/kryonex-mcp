@@ -1,4 +1,12 @@
 // src/system/taskQueue.mjs
+/**
+ * Provides:
+ * - InMemoryQueue (simple FIFO)
+ * - RedisQueue skeleton (uses ioredis if installed)
+ *
+ * The RedisQueue is optional; this file will not throw if ioredis is missing.
+ */
+
 class InMemoryQueue {
   constructor() {
     this.queue = [];
@@ -10,40 +18,56 @@ class InMemoryQueue {
     this._drain();
   }
 
+  async _runJob(job) {
+    try {
+      await job();
+    } catch (e) {
+      console.error("[InMemoryQueue] job error:", e);
+    }
+  }
+
   _drain() {
     if (this.processing) return;
     this.processing = true;
     setImmediate(async () => {
       while (this.queue.length) {
-        const j = this.queue.shift();
-        try { await j(); } catch (e) { console.error("job error", e); }
+        const job = this.queue.shift();
+        await this._runJob(job);
       }
       this.processing = false;
     });
   }
 
-  async length() { return this.queue.length; }
+  length() {
+    return this.queue.length;
+  }
 }
 
-// Redis adapter skeleton (requires ioredis)
-class RedisQueue {
-  constructor(redisClient, queueName = "kryonex:tasks") {
-    this.redis = redisClient;
-    this.queueName = queueName;
-  }
+// RedisQueue skeleton - optional dependency
+let RedisQueue = null;
+try {
+  const IORedis = await import("ioredis").catch(() => null);
+  if (IORedis) {
+    RedisQueue = class {
+      constructor(redisClient, queueName = "kryonex:tasks") {
+        this.redis = redisClient;
+        this.queueName = queueName;
+      }
 
-  async push(payload) {
-    // push serialized job to Redis list
-    await this.redis.lpush(this.queueName, JSON.stringify(payload));
-  }
+      async push(payload) {
+        await this.redis.lpush(this.queueName, JSON.stringify(payload));
+      }
 
-  // consumer must pop jobs and process
-  async popBlocking(timeout = 0) {
-    const res = await this.redis.brpop(this.queueName, timeout);
-    if (!res) return null;
-    const payload = JSON.parse(res[1]);
-    return payload;
+      async popBlocking(timeout = 0) {
+        const res = await this.redis.brpop(this.queueName, timeout);
+        if (!res) return null;
+        return JSON.parse(res[1]);
+      }
+    };
   }
+} catch (e) {
+  // ignore - redis optional
+  RedisQueue = null;
 }
 
 export { InMemoryQueue, RedisQueue };

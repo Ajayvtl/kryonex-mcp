@@ -13,6 +13,5 @@
   "embeddingModelText": "Xenova/all-MiniLM-L6-v2",
   "embeddingModelCode": "Xenova/codebert-base",
   "useLocalXenova": true,
-  "ragTopK": 8,
-  "projects": {}
+  "ragTopK": 8
 }
