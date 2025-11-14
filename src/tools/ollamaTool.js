@@ -1,5 +1,5 @@
 import ollama from "ollama";
-import { save } from "../models/kryonexStorage.mjs";
+import { save } from "../models/kryonexStorage.js";
 
 const ollamaTool = {
     name: "ollamaChat",

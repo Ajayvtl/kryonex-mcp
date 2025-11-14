@@ -57,8 +57,6 @@ async function loadTools() {
 
   for (const file of files) {
     if (!file.endsWith(".js")) continue;
-    if (file === "ollamaTool.js") continue; // loaded manually
-
     try {
       const toolModule = await import(`./tools/${file}`);
 
@@ -82,8 +80,7 @@ async function loadTools() {
 await loadTools();
 
 // Explicitly add ollama tool
-toolHandlers[ollamaTool.name] = ollamaTool.handler;
-log(`Explicitly added tool: ${ollamaTool.name}`);
+
 
 // ------------ MCP SERVER SETUP ------------
 const server = new Server(
@@ -93,12 +90,13 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: { list: {}, call: {} },
-      resources: { list: {}, read: {} },
-      prompts: { list: {}, get: {} },
+      tools: {},
+      resources: {},
+      prompts: {},
     },
   }
 );
+
 
 // ------------ RESOURCE LISTING ------------
 server.setRequestHandler(ListResourcesRequestSchema, async () => ({
@@ -124,27 +122,65 @@ server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
 });
 
 // ------------ LIST TOOLS ------------
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "create_note",
-      description: "Create a new note",
-      inputSchema: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          content: { type: "string" },
+// server.setRequestHandler(ListToolsRequestSchema, async () => ({
+//   tools: [
+//     {
+//       name: "create_note",
+//       description: "Create a new note",
+//       inputSchema: {
+//         type: "object",
+//         properties: {
+//           title: { type: "string" },
+//           content: { type: "string" },
+//         },
+//         required: ["title", "content"],
+//       },
+//     },
+//     {
+//       name: ollamaTool.name,
+//       description: ollamaTool.description,
+//       inputSchema: ollamaTool.schema,
+//     },
+//   ],
+// }));
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const dynamicTools = Object.entries(toolHandlers).map(([name, handler]) => ({
+    name,
+    description: handler?.description || "No description",
+    inputSchema: handler?.schema || { type: "object" },
+  }));
+
+  return {
+    tools: [
+      // static tool
+      {
+        name: "create_note",
+        description: "Create a new note",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["title", "content"],
         },
-        required: ["title", "content"],
       },
-    },
-    {
-      name: ollamaTool.name,
-      description: ollamaTool.description,
-      inputSchema: ollamaTool.schema,
-    },
-  ],
-}));
+
+      // ollama
+      {
+        name: ollamaTool.name,
+        description: ollamaTool.description,
+        inputSchema: ollamaTool.schema,
+      },
+
+      // dynamic tools from /tools folder
+      ...dynamicTools,
+    ],
+  };
+});
+
+
 
 // ------------ CALL TOOL ------------
 server.setRequestHandler(CallToolRequestSchema, async (request) => {

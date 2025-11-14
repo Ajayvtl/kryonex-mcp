@@ -1,7 +1,7 @@
 /*
- * src/fileUtils.mjs
+ * src/fileUtils.js
  * Production-grade file utilities for Project Intelligence Framework V1
- * Replace / add this file at: ./src/fileUtils.mjs (or overwrite existing fileUtils.mjs at project root if you prefer)
+ * Replace / add this file at: ./src/fileUtils.js (or overwrite existing fileUtils.js at project root if you prefer)
  *
  * Features:
  * - safe atomic writes
@@ -46,9 +46,12 @@ function normalizeIgnorePatterns(patterns = []) {
     // - patterns starting with '!' -> negate
     // - simple wildcard '*' supported (convert to RegExp)
     const neg = p.startsWith('!');
-    const pat = neg ? p.slice(1) : p;
+    let pat = neg ? p.slice(1) : p;
+    if (pat.endsWith('/**')) {
+      pat = pat.slice(0, -3);
+    }
     const escaped = pat.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\\\*/g, '.*');
-    const re = new RegExp(`^${escaped}$`);
+    const re = new RegExp(`^${escaped}(/|$)`);
     return { raw: p, neg, re };
   });
 }
@@ -138,7 +141,7 @@ export function isBufferBinary(buf) {
   return (nonPrintable / len) > 0.3; // arbitrary threshold
 }
 
-export async function atomicWrite(filePath, data, { encoding = 'utf8', mode = 0o644, fsync = true } = {}) {
+export async function atomicWrite(filePath, data, { encoding = 'utf8', mode = 0o644, fsync = false } = {}) {
   const dir = path.dirname(filePath);
   await ensureDir(dir);
   const tmp = makeTempPath(dir, '.atomic');
@@ -193,7 +196,7 @@ export async function removePath(target) {
       // recursive rm
       await fsp.rm(target, { recursive: true, force: true });
     } else {
-      await fsp.unlink(target).catch(() => {});
+      await fsp.unlink(target).catch(() => { });
     }
     statCache.invalidate(target);
   } catch (err) {

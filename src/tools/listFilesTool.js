@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { resolveWorkspacePath } from "../utils/pathResolver.mjs";
+import { resolveWorkspacePath } from "../utils/pathResolver.js";
 
 const listFilesTool = {
   name: "list_files",

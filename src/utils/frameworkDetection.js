@@ -1,8 +1,8 @@
 /*
- * src/frameworkDetection.mjs
+ * src/frameworkDetection.js
  * Project Intelligence Framework V1 — Framework & Library Detector
  *
- * Replace / add this file at: ./src/frameworkDetection.mjs
+ * Replace / add this file at: ./src/frameworkDetection.js
  *
  * Responsibilities:
  * - Detect frameworks used in a project based on:
@@ -15,8 +15,8 @@
  */
 
 import path from 'path';
-import fileUtils from './fileUtils.mjs';
-import { loadKryonexConfig } from './kryonexStorage.mjs';
+import fileUtils from '../utils/fileUtils.js';
+import { loadKryonexConfig } from '../models/kryonexStorage.js';
 
 // --- Known frameworks patterns ---------------------------------------------
 const FRAMEWORK_PATTERNS = {

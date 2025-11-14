@@ -1,8 +1,8 @@
 /*
- * src/semanticStore.mjs
+ * src/semanticStore.js
  * Project Intelligence Framework V1 — Hybrid Semantic Store (Text + Code Embeddings)
  *
- * Replace / add this file at: ./src/semanticStore.mjs
+ * Replace / add this file at: ./src/semanticStore.js
  *
  * Responsibilities:
  * - Chunk text files according to config.chunkSize
@@ -20,24 +20,35 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
-import fileUtils from './fileUtils.mjs';
-import { loadKryonexConfig, getProjectStorePaths } from './kryonexStorage.mjs';
+import fileUtils from '../utils/fileUtils.js';
+import { loadKryonexConfig, getProjectStorePaths } from '../models/kryonexStorage.js';
 import { pipeline } from 'stream/promises';
 
 // --- Embedding loader (Xenova) ---------------------------------------------
-async function loadEmbeddingModel(modelName) {
+async function loadEmbeddingModel(modelName, useLocal) {
+  // Set cache path for local models
+  if (useLocal) {
+    process.env.TRANSFORMERS_CACHE = path.join(os.homedir(), '.cache', 'transformers');
+  }
+
   const { pipeline: hfPipeline } = await import('@xenova/transformers');
-  return await hfPipeline('feature-extraction', modelName, { quantized: true });
+  const options = { quantized: true };
+  if (useLocal) {
+    options.local_files_only = true;
+  }
+  return await hfPipeline('feature-extraction', modelName, options);
 }
 
 // caches
 const modelCache = new Map();
-async function getModel(modelName) {
-  if (!modelCache.has(modelName)) {
-    modelCache.set(modelName, await loadEmbeddingModel(modelName));
+async function getModel(modelName, useLocal) {
+  const cacheKey = `${modelName}-${useLocal}`;
+  if (!modelCache.has(cacheKey)) {
+    modelCache.set(cacheKey, await loadEmbeddingModel(modelName, useLocal));
   }
-  return modelCache.get(modelName);
+  return modelCache.get(cacheKey);
 }
 
 // --- Chunking --------------------------------------------------------------
@@ -55,11 +66,10 @@ function chunkText(text, chunkSize) {
 function hashChunk(content) {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
-
 // --- Determine model -------------------------------------------------------
 function isCodeFile(ext) {
   return [
-    '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+    '.js', '.js', '.cjs', '.ts', '.tsx', '.jsx',
     '.py', '.java', '.cpp', '.h', '.hpp',
     '.cs', '.go', '.rs', '.php', '.rb',
     '.swift', '.kt', '.kts', '.scala', '.sh', '.lua'
@@ -84,8 +94,11 @@ async function saveVectorStore(projectRoot, store) {
 }
 
 // --- Embedding generator ---------------------------------------------------
-async function embedContent(modelName, text) {
-  const mdl = await getModel(modelName);
+async function embedContent(modelName, text, useLocal) {
+  if (!text || typeof text !== "string" || text.trim().length === 0) {
+    return []; // Return an empty array for invalid input
+  }
+  const mdl = await getModel(modelName, useLocal);
   const out = await mdl(text);
   // Flatten to 1D array
   const arr = Array.from(out.data);
@@ -124,7 +137,7 @@ export async function ingestScannedFiles(projectRoot, scannedFiles) {
         continue;
       }
 
-      const embedding = await embedContent(usingModel, ch);
+      const embedding = await embedContent(usingModel, ch, config.useLocalXenova);
 
       newChunks[idx] = {
         hash,
@@ -173,7 +186,7 @@ export async function searchStore(projectRoot, query, topK = 5) {
   const store = await loadVectorStore(projectRoot);
 
   // embed query with text model
-  const qEmbedding = await embedContent(config.embeddingModelText, query);
+  const qEmbedding = await embedContent(config.embeddingModelText, query, config.useLocalXenova);
 
   const results = [];
 

@@ -1,0 +1,17 @@
+{
+  "chunkSize": 1000,
+  "skipFolders": [
+    "node_modules",
+    ".git",
+    ".kryonex",
+    "build"
+  ],
+  "skipExtensions": [
+    ".lock"
+  ],
+  "maxFileSize": 5242880,
+  "embeddingModelText": "Xenova/all-MiniLM-L6-v2",
+  "embeddingModelCode": "Xenova/codebert-base",
+  "useLocalXenova": true,
+  "ragTopK": 8
+}

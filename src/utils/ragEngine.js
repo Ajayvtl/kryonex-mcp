@@ -1,8 +1,8 @@
 /*
- * src/utils/ragEngine.mjs
+ * src/utils/ragEngine.js
  * Project Intelligence Framework V1 — RAG Engine
  *
- * PLACE THIS FILE AT: ./src/utils/ragEngine.mjs
+ * PLACE THIS FILE AT: ./src/utils/ragEngine.js
  * (Note: You requested all new modules under the utils folder.)
  *
  * Responsibilities:
@@ -12,12 +12,12 @@
  * - Lightweight + MCP-safe
  */
 
-import semanticStore from '../semanticStore.mjs';
-import languageDetection from '../languageDetection.mjs';
-import frameworkDetection from '../frameworkDetection.mjs';
-import projectScanner from '../projectScanner.mjs';
-import fileUtils from '../fileUtils.mjs';
-import { loadKryonexConfig } from '../kryonexStorage.mjs';
+import semanticStore from '../utils/semanticStore.js';
+import languageDetection from '../utils/languageDetection.js';
+import frameworkDetection from '../utils/frameworkDetection.js';
+import projectScanner from '../utils/projectScanner.js';
+import fileUtils from '../utils/fileUtils.js';
+import { loadKryonexConfig } from '../models/kryonexStorage.js';
 
 // ---------------------------------------------------------
 // Build context blocks from search results

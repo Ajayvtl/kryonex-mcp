@@ -1,8 +1,8 @@
 /*
- * src/projectScanner.mjs
+ * src/projectScanner.js
  * Project Intelligence Framework V1 — Advanced project scanner
  *
- * Replace / add this file at: ./src/projectScanner.mjs
+ * Replace / add this file at: ./src/projectScanner.js
  *
  * Responsibilities:
  * - Walk project directory using fileUtils.walkDir
@@ -16,8 +16,8 @@
  */
 
 import path from 'path';
-import fileUtils from './fileUtils.mjs';
-import { loadKryonexConfig } from './kryonexStorage.mjs';
+import fileUtils from '../utils/fileUtils.js';
+import { loadKryonexConfig } from '../models/kryonexStorage.js';
 
 // Meta helper ---------------------------------------------------------------
 function buildFileMetadata(absPath, relPath, stat, isBinary) {
@@ -40,7 +40,7 @@ export async function scanProject(projectRoot) {
   const results = [];
 
   for await (const ent of fileUtils.walkDir(projectRoot, {
-    ignore: skipFolders.map((f) => `${f}/**`),
+    ignore: skipFolders,
     followSymlinks: false,
   })) {
     if (ent.type !== 'file') continue;

@@ -1,8 +1,8 @@
 /*
- * src/languageDetection.mjs
+ * src/languageDetection.js
  * Project Intelligence Framework V1 — Lightweight Language Detector
  *
- * Replace / add this file at: ./src/languageDetection.mjs
+ * Replace / add this file at: ./src/languageDetection.js
  *
  * Responsibilities:
  * - Identify language of a file based on extension + lightweight heuristic
@@ -14,7 +14,7 @@ import path from 'path';
 
 // --- Extension → Language mapping ------------------------------------------
 const EXT_MAP = {
-  '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+  '.js': 'javascript', '.js': 'javascript', '.cjs': 'javascript',
   '.ts': 'typescript', '.tsx': 'typescript', '.jsx': 'javascript',
   '.py': 'python', '.java': 'java', '.cpp': 'cpp', '.c': 'c', '.h': 'c', '.hpp': 'cpp',
   '.cs': 'csharp', '.go': 'go', '.rs': 'rust', '.php': 'php', '.rb': 'ruby',
