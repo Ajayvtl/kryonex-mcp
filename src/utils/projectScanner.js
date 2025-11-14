@@ -17,7 +17,7 @@
 
 import path from 'path';
 import fileUtils from '../utils/fileUtils.js';
-import { loadKryonexConfig } from '../models/kryonexStorage.js';
+import { loadKryonexGeneralConfig } from '../models/kryonexStorage.js';
 
 // Meta helper ---------------------------------------------------------------
 function buildFileMetadata(absPath, relPath, stat, isBinary) {
@@ -32,7 +32,7 @@ function buildFileMetadata(absPath, relPath, stat, isBinary) {
 
 // Core scanner --------------------------------------------------------------
 export async function scanProject(projectRoot) {
-  const config = await loadKryonexConfig(projectRoot);
+  const config = await loadKryonexGeneralConfig(projectRoot);
   const skipFolders = config.skipFolders || [];
   const skipExtensions = config.skipExtensions || [];
   const maxFileSize = config.maxFileSize || 5 * 1024 * 1024; // 5MB default

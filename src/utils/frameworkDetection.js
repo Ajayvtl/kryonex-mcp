@@ -16,7 +16,7 @@
 
 import path from 'path';
 import fileUtils from '../utils/fileUtils.js';
-import { loadKryonexConfig } from '../models/kryonexStorage.js';
+import { loadKryonexGeneralConfig } from '../models/kryonexStorage.js';
 
 // --- Known frameworks patterns ---------------------------------------------
 const FRAMEWORK_PATTERNS = {

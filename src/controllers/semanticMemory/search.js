@@ -1,6 +1,6 @@
 import fileUtils from "../../utils/fileUtils.js";
 import semanticStore from "../../utils/semanticStore.js";
-import { getProjectStorePaths, loadKryonexConfig } from "../../models/kryonexStorage.js";
+import { getProjectStorePaths, loadKryonexGeneralConfig } from "../../models/kryonexStorage.js";
 import fs from "fs/promises";
 
 /**
@@ -9,7 +9,7 @@ import fs from "fs/promises";
  */
 export async function searchMemory(args, context) {
   const root = fileUtils.resolveProjectRoot(args.projectRoot || context?.projectRoot || process.cwd());
-  const config = await loadKryonexConfig(root);
+  const config = await loadKryonexGeneralConfig(root);
   const { memoryStorePath } = await getProjectStorePaths(root);
 
   const raw = await fs.readFile(memoryStorePath, "utf8").catch(() => "{}");

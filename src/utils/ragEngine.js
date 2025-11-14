@@ -17,7 +17,7 @@ import languageDetection from '../utils/languageDetection.js';
 import frameworkDetection from '../utils/frameworkDetection.js';
 import projectScanner from '../utils/projectScanner.js';
 import fileUtils from '../utils/fileUtils.js';
-import { loadKryonexConfig } from '../models/kryonexStorage.js';
+import { loadKryonexGeneralConfig } from '../models/kryonexStorage.js';
 
 // ---------------------------------------------------------
 // Build context blocks from search results
@@ -47,7 +47,7 @@ export async function ragQuery(projectRoot, query, { topK = 8 } = {}) {
 // Deep Context: Scanning + RAG + detectors
 // ---------------------------------------------------------
 export async function ragDeepContext(projectRoot, query, scannedFiles = null) {
-  const config = await loadKryonexConfig(projectRoot);
+  const config = await loadKryonexGeneralConfig(projectRoot);
 
   // If caller didn't provide scanned files, auto-scan
   let scanData = scannedFiles;

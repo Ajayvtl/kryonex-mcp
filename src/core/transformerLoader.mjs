@@ -1,24 +1,53 @@
-import { env, AutoModel, AutoTokenizer } from "@xenova/transformers";
 import path from "path";
-import { fileURLToPath } from "url";
+import fs from "fs";
+import { AutoTokenizer, AutoModel } from "@xenova/transformers";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export async function loadTextEmbeddingModel(modelName, root) {
+  const modelDir = path.join(root, ".kryonex", "models", modelName);
 
-// GLOBAL CACHE FOR ALL PROJECTS
-env.cacheDir = path.join(__dirname, "../../models");
-env.allowRemoteModels = true;
+  if (!fs.existsSync(modelDir)) {
+    throw new Error(
+      `Local model missing at ${modelDir}\n` +
+      `Run: node src/utils/download-model.mjs ${modelName}`
+    );
+  }
 
-export async function loadTextEmbeddingModel() {
-  return {
-    tokenizer: await AutoTokenizer.from_pretrained("Xenova/all-MiniLM-L6-v2"),
-    model: await AutoModel.from_pretrained("Xenova/all-MiniLM-L6-v2"),
-  };
+  console.error("🔧 Loading LOCAL model:", modelDir);
+
+  const tokenizer = await AutoTokenizer.from_pretrained(modelName, {
+    local_files_only: true,
+    model_path: modelDir,
+  });
+
+  const model = await AutoModel.from_pretrained(modelName, {
+    local_files_only: true,
+    model_path: modelDir,
+  });
+
+  return { tokenizer, model };
 }
 
-export async function loadCodeEmbeddingModel() {
-  return {
-    tokenizer: await AutoTokenizer.from_pretrained("Xenova/codebert-base"),
-    model: await AutoModel.from_pretrained("Xenova/codebert-base"),
-  };
+export async function loadCodeEmbeddingModel(modelName, root) {
+  const modelDir = path.join(root, ".kryonex", "models", modelName);
+
+  if (!fs.existsSync(modelDir)) {
+    throw new Error(
+      `Local model missing at ${modelDir}\n` +
+      `Run: node src/utils/download-model.mjs ${modelName}`
+    );
+  }
+
+  console.error("🔧 Loading LOCAL code model:", modelDir);
+
+  const tokenizer = await AutoTokenizer.from_pretrained(modelName, {
+    local_files_only: true,
+    model_path: modelDir,
+  });
+
+  const model = await AutoModel.from_pretrained(modelName, {
+    local_files_only: true,
+    model_path: modelDir,
+  });
+
+  return { tokenizer, model };
 }

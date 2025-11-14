@@ -8,7 +8,8 @@ import fs from "fs/promises";
 import fssync from "fs";          // for existsSync only
 import path from "path";
 import fileUtils from "../utils/fileUtils.js";
-import { loadTextEmbeddingModel, loadCodeEmbeddingModel } from "../../core/transformerLoader.mjs";
+import { loadTextEmbeddingModel, loadCodeEmbeddingModel } from "../core/transformerLoader.mjs";
+import * as modelManagerTool from "../tools/modelManagerTool.js";
 // ------------------------------------------------------
 // DEFAULT CONFIG
 // ------------------------------------------------------
@@ -21,9 +22,60 @@ const DEFAULT_CONFIG = {
   embeddingModelCode: "Xenova/codebert-base",
   useLocalXenova: true,
   ragTopK: 8,
+  projects: {} // Add a projects key to the default config
 };
-const text = await loadTextEmbeddingModel();
-const code = await loadCodeEmbeddingModel();
+
+const DEFAULT_TOOLS_CONFIG = {
+  activeModelText: "Xenova/all-MiniLM-L6-v2",
+  activeModelCode: "Xenova/codebert-base",
+};
+
+let loadedTextEmbeddingModel = null;
+let loadedCodeEmbeddingModel = null;
+
+// ------------------------------------------------------
+// DYNAMIC MODEL LOADING
+// ------------------------------------------------------
+export async function loadActiveModels(projectRoot) {
+  const toolsConfig = await loadToolsConfig(projectRoot);
+  const root = fileUtils.resolveProjectRoot(projectRoot);
+
+  const textModelName = toolsConfig.activeModelText;
+  const codeModelName = toolsConfig.activeModelCode;
+
+  // Ensure models are downloaded if missing
+  if (!(await modelManagerTool.isModelDownloaded(textModelName, root))) {
+    console.warn(`Text embedding model ${textModelName} not found locally. Downloading...`);
+    await modelManagerTool.downloadModel(textModelName, root);
+  }
+  if (!(await modelManagerTool.isModelDownloaded(codeModelName, root))) {
+    console.warn(`Code embedding model ${codeModelName} not found locally. Downloading...`);
+    await modelManagerTool.downloadModel(codeModelName, root);
+  }
+
+  loadedTextEmbeddingModel = await loadTextEmbeddingModel(textModelName, root);
+  loadedCodeEmbeddingModel = await loadCodeEmbeddingModel(codeModelName, root);
+
+  return {
+    text: loadedTextEmbeddingModel,
+    code: loadedCodeEmbeddingModel,
+  };
+}
+
+export function getTextEmbeddingModel() {
+  if (!loadedTextEmbeddingModel) {
+    throw new Error("Text embedding model not loaded. Call loadActiveModels first.");
+  }
+  return loadedTextEmbeddingModel;
+}
+
+export function getCodeEmbeddingModel() {
+  if (!loadedCodeEmbeddingModel) {
+    throw new Error("Code embedding model not loaded. Call loadActiveModels first.");
+  }
+  return loadedCodeEmbeddingModel;
+}
+
 // ------------------------------------------------------
 // SQLITE INITIALIZER (safe on all OS + MCP Inspector)
 // ------------------------------------------------------
@@ -31,11 +83,11 @@ export function initStorage(dbPath) {
   const dir = path.dirname(dbPath);
   if (!fssync.existsSync(dir)) fssync.mkdirSync(dir, { recursive: true });
 
-const db = new Database(dbPath, {
-  fileMustExist: false,
-  verbose: null,
-  nativeBinding: undefined,   // Windows fix (prevents fsync call)
-});
+  const db = new Database(dbPath, {
+    fileMustExist: false,
+    verbose: null,
+    nativeBinding: undefined,   // Windows fix (prevents fsync call)
+  });
 
   // ⚠ Fix fsync failure on Windows + MCP Inspector
   db.pragma("journal_mode = MEMORY");
@@ -63,6 +115,7 @@ export async function getProjectStorePaths(projectRoot) {
   const paths = {
     kryonexRoot: kxRoot,
     configPath: path.join(kxRoot, "config.json"),
+    toolsConfigPath: path.join(kxRoot, "tools-config.json"), // New tools config path
     vectorStorePath: path.join(kxRoot, "vector-store", "vectors.json"),
     memoryStorePath: path.join(kxRoot, "memory-store", "memory.json"),
     logsPath: path.join(kxRoot, "logs"),
@@ -81,7 +134,7 @@ export async function getProjectStorePaths(projectRoot) {
 // ------------------------------------------------------
 // CONFIG LOAD
 // ------------------------------------------------------
-export async function loadKryonexConfig(projectRoot) {
+export async function loadKryonexGeneralConfig(projectRoot) {
   const { configPath } = await getProjectStorePaths(projectRoot);
 
   if (!(await fileUtils.pathExists(configPath))) {
@@ -100,10 +153,39 @@ export async function loadKryonexConfig(projectRoot) {
 // ------------------------------------------------------
 // CONFIG SAVE
 // ------------------------------------------------------
-export async function saveKryonexConfig(projectRoot, cfg) {
+export async function saveKryonexGeneralConfig(projectRoot, cfg) {
   const { configPath } = await getProjectStorePaths(projectRoot);
   const merged = { ...DEFAULT_CONFIG, ...cfg };
   await fileUtils.atomicWrite(configPath, JSON.stringify(merged, null, 2));
+  return merged;
+}
+
+// ------------------------------------------------------
+// TOOLS CONFIG LOAD
+// ------------------------------------------------------
+export async function loadToolsConfig(projectRoot) {
+  const { toolsConfigPath } = await getProjectStorePaths(projectRoot);
+
+  if (!(await fileUtils.pathExists(toolsConfigPath))) {
+    await fileUtils.atomicWrite(toolsConfigPath, JSON.stringify(DEFAULT_TOOLS_CONFIG, null, 2));
+    return DEFAULT_TOOLS_CONFIG;
+  }
+
+  try {
+    const raw = await fileUtils.readFileText(toolsConfigPath);
+    return { ...DEFAULT_TOOLS_CONFIG, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_TOOLS_CONFIG;
+  }
+}
+
+// ------------------------------------------------------
+// TOOLS CONFIG SAVE
+// ------------------------------------------------------
+export async function saveToolsConfig(projectRoot, cfg) {
+  const { toolsConfigPath } = await getProjectStorePaths(projectRoot);
+  const merged = { ...DEFAULT_TOOLS_CONFIG, ...cfg };
+  await fileUtils.atomicWrite(toolsConfigPath, JSON.stringify(merged, null, 2));
   return merged;
 }
 
@@ -141,10 +223,16 @@ export async function save(context, name, data, folder = "sessions") {
 // ------------------------------------------------------
 export default {
   DEFAULT_CONFIG,
+  DEFAULT_TOOLS_CONFIG,
   initStorage,
   getProjectStorePaths,
-  loadKryonexConfig,
-  saveKryonexConfig,
+  loadKryonexGeneralConfig,
+  saveKryonexGeneralConfig,
   clearKryonexData,
   save,
+  loadToolsConfig,
+  saveToolsConfig,
+  loadActiveModels,
+  getTextEmbeddingModel,
+  getCodeEmbeddingModel,
 };

@@ -1,44 +1,41 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const SRC = "src";
+const BUILD = "build";
 
-const copyDirectory = (sourceDir, destinationDir, label) => {
-  if (!fs.existsSync(sourceDir)) {
-    console.warn(`⚠️ No ${label} folder found at ${sourceDir}. Skipping copy.`);
-    return;
+const DIRECTORIES_TO_COPY = [
+  "controllers",
+  "models",
+  "core",
+  "plugins",
+  "utils"
+];
+
+// Copy JS/MJS/JSON only – TS is compiled by tsc
+function copyRecursive(srcDir, destDir) {
+  if (!fs.existsSync(srcDir)) return;
+
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+  for (const item of fs.readdirSync(srcDir)) {
+    const srcPath = path.join(srcDir, item);
+    const destPath = path.join(destDir, item);
+
+    const stat = fs.statSync(srcPath);
+
+    if (stat.isDirectory()) {
+      copyRecursive(srcPath, destPath);
+    } else {
+      if (srcPath.endsWith(".js") || srcPath.endsWith(".mjs") || srcPath.endsWith(".json")) {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
   }
+}
 
-  fs.mkdirSync(destinationDir, { recursive: true });
+for (const dir of DIRECTORIES_TO_COPY) {
+  copyRecursive(path.join(SRC, dir), path.join(BUILD, dir));
+}
 
-  for (const file of fs.readdirSync(sourceDir)) {
-    fs.copyFileSync(
-      path.join(sourceDir, file),
-      path.join(destinationDir, file)
-    );
-  }
-  console.log(`✅ ${label} copied → ${destinationDir}`);
-};
-
-// Copy tools
-copyDirectory(
-  path.join(__dirname, "src", "tools"),
-  path.join(__dirname, "build", "tools"),
-  "Tools"
-);
-
-// Copy models
-copyDirectory(
-  path.join(__dirname, "src", "models"),
-  path.join(__dirname, "build", "models"),
-  "Models"
-);
-
-// Copy utils
-copyDirectory(
-  path.join(__dirname, "src", "utils"),
-  path.join(__dirname, "build", "utils"),
-  "Utils"
-);
+console.log("✔ Copied all assets into build/");

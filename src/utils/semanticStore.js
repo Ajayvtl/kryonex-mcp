@@ -23,7 +23,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import fileUtils from '../utils/fileUtils.js';
-import { loadKryonexConfig, getProjectStorePaths } from '../models/kryonexStorage.js';
+import { loadKryonexGeneralConfig, getProjectStorePaths } from '../models/kryonexStorage.js';
 import { pipeline } from 'stream/promises';
 
 // --- Embedding loader (Xenova) ---------------------------------------------
@@ -107,7 +107,7 @@ async function embedContent(modelName, text, useLocal) {
 
 // --- Main ingestion --------------------------------------------------------
 export async function ingestScannedFiles(projectRoot, scannedFiles) {
-  const config = await loadKryonexConfig(projectRoot);
+  const config = await loadKryonexGeneralConfig(projectRoot);
   const chunkSize = config.chunkSize || 1000;
   const store = await loadVectorStore(projectRoot);
 
@@ -182,7 +182,7 @@ function cosineSim(a, b) {
 }
 
 export async function searchStore(projectRoot, query, topK = 5) {
-  const config = await loadKryonexConfig(projectRoot);
+  const config = await loadKryonexGeneralConfig(projectRoot);
   const store = await loadVectorStore(projectRoot);
 
   // embed query with text model

@@ -1,6 +1,6 @@
 import fileUtils from "../../utils/fileUtils.js";
 import semanticStore from "../../utils/semanticStore.js";
-import { getProjectStorePaths, loadKryonexConfig } from "../../models/kryonexStorage.js";
+import { getProjectStorePaths, loadKryonexGeneralConfig } from "../../models/kryonexStorage.js";
 import fs from "fs/promises";
 import path from "path";
 
@@ -10,7 +10,7 @@ import path from "path";
  */
 export async function addMemory(args, context) {
   const root = fileUtils.resolveProjectRoot(args.projectRoot || context?.projectRoot || process.cwd());
-  const config = await loadKryonexConfig(root);
+  const config = await loadKryonexGeneralConfig(root);
   const id = Date.now().toString();
   const embedding = await semanticStore.embedContent(config.embeddingModelText, args.text, config.useLocalXenova);
   const { memoryStorePath } = await getProjectStorePaths(root);
