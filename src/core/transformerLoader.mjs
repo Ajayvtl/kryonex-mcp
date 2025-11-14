@@ -1,11 +1,11 @@
 import path from "path";
-import fs from "fs";
+import fssync from "fs"; // Changed to fssync for consistency
 import { AutoTokenizer, AutoModel } from "@xenova/transformers";
 
 export async function loadTextEmbeddingModel(modelName, root) {
   const modelDir = path.join(root, ".kryonex", "models", modelName);
 
-  if (!fs.existsSync(modelDir)) {
+  if (!fssync.existsSync(modelDir)) { // Use fssync.existsSync
     throw new Error(
       `Local model missing at ${modelDir}\n` +
       `Run: node src/utils/download-model.mjs ${modelName}`
@@ -30,7 +30,7 @@ export async function loadTextEmbeddingModel(modelName, root) {
 export async function loadCodeEmbeddingModel(modelName, root) {
   const modelDir = path.join(root, ".kryonex", "models", modelName);
 
-  if (!fs.existsSync(modelDir)) {
+  if (!fssync.existsSync(modelDir)) { // Use fssync.existsSync
     throw new Error(
       `Local model missing at ${modelDir}\n` +
       `Run: node src/utils/download-model.mjs ${modelName}`

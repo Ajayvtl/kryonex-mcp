@@ -18,7 +18,8 @@
  * - Uses kryonexStorage for config + storage paths
  */
 
-import fs from 'fs';
+import fssync from 'fs'; // For synchronous operations like existsSync
+import fs from 'fs/promises'; // For asynchronous file operations
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
@@ -76,21 +77,60 @@ function isCodeFile(ext) {
   ].includes(ext);
 }
 
-// --- Vector Store Load/Save ------------------------------------------------
-async function loadVectorStore(projectRoot) {
-  const { vectorStorePath } = await getProjectStorePaths(projectRoot);
-  if (!(await fileUtils.pathExists(vectorStorePath))) return {};
-  try {
-    return JSON.parse(await fileUtils.readFileText(vectorStorePath));
-  } catch {
-    return {};
+// --- Generic Semantic Entry Load/Save --------------------------------------
+async function getSemanticEntryPath(projectRoot, namespace, key) {
+  const paths = await getProjectStorePaths(projectRoot);
+  let entryPath;
+  switch (namespace) {
+    case "dependencies":
+      entryPath = paths.dependencyGraphPath;
+      break;
+    case "vector-store":
+      entryPath = paths.vectorStorePath;
+      break;
+    case "memory-store":
+      entryPath = paths.memoryStorePath;
+      break;
+    default:
+      // For other namespaces, store in a generic folder within .kryonex
+      entryPath = path.join(paths.kryonexRoot, namespace, `${key}.json`);
+      break;
+  }
+  return entryPath;
+}
+
+export async function addSemanticEntry(projectRoot, namespace, key, data, db = null) {
+  const entryPath = await getSemanticEntryPath(projectRoot, namespace, key);
+  await fileUtils.ensureDir(path.dirname(entryPath));
+  await fileUtils.atomicWrite(entryPath, JSON.stringify(data, null, 2));
+
+  // If a database is provided, store a reference or summary in the DB
+  if (db) {
+    // This is a simplified example. A real implementation would store structured data.
+    // For now, we'll just log that it's being stored.
+    console.log(`Stored semantic entry for namespace '${namespace}', key '${key}' in file system. Database integration for semantic entries is a future enhancement.`);
   }
 }
 
+export async function getSemanticEntry(projectRoot, namespace, key) {
+  const entryPath = await getSemanticEntryPath(projectRoot, namespace, key);
+  if (!(await fileUtils.pathExists(entryPath))) return null;
+  try {
+    return JSON.parse(await fileUtils.readFileText(entryPath));
+  } catch (e) {
+    console.error(`Error reading semantic entry ${entryPath}:`, e);
+    return null;
+  }
+}
+
+// --- Vector Store Load/Save (now uses generic semantic entry functions) ----
+async function loadVectorStore(projectRoot) {
+  const store = await getSemanticEntry(projectRoot, "vector-store", "vectors");
+  return store || {};
+}
+
 async function saveVectorStore(projectRoot, store) {
-  const { vectorStorePath } = await getProjectStorePaths(projectRoot);
-  await fileUtils.ensureDir(path.dirname(vectorStorePath));
-  await fileUtils.atomicWrite(vectorStorePath, JSON.stringify(store, null, 2));
+  await addSemanticEntry(projectRoot, "vector-store", "vectors", store);
 }
 
 // --- Embedding generator ---------------------------------------------------
@@ -206,6 +246,8 @@ const semanticStore = {
   ingestScannedFiles,
   removeFileFromStore,
   searchStore,
+  addSemanticEntry, // Export new function
+  getSemanticEntry, // Export new function
 };
 
 export default semanticStore;

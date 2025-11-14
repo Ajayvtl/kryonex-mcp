@@ -2,7 +2,7 @@
 import { exec as _exec } from "child_process";
 import { promisify } from "util";
 import inquirer from "inquirer";
-import fs from "fs";
+import * as fs from "fs";
 const exec = promisify(_exec);
 
 function safeExec(cmd, opts={}) {

@@ -6,8 +6,8 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
-const fs = require("fs");
-const path = require("path");
+import fssync from "fs"; // Use fssync for synchronous operations
+import path from "path";
 
 // Optional deps wrapped in try-catch for graceful degradation
 let recast, babelParser, jsonc, yaml, Parser, Python, Go;
@@ -26,13 +26,13 @@ async function loadTreeSitterOnce() {
   const langs = {};
   try {
     const pythonWasm = path.join(process.cwd(), "tree-sitter-langs", "python.wasm");
-    if (fs.existsSync(pythonWasm)) {
+    if (fssync.existsSync(pythonWasm)) { // Use fssync.existsSync
       langs.python = await Parser.Language.load(pythonWasm);
     }
   } catch {}
   try {
     const goWasm = path.join(process.cwd(), "tree-sitter-langs", "go.wasm");
-    if (fs.existsSync(goWasm)) {
+    if (fssync.existsSync(goWasm)) { // Use fssync.existsSync
       langs.go = await Parser.Language.load(goWasm);
     }
   } catch {}
@@ -101,10 +101,10 @@ export const schema = {
 
 // ---------- utilities ----------
 function ensureDir(p) {
-  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+  if (!fssync.existsSync(p)) fssync.mkdirSync(p, { recursive: true }); // Use fssync
 }
-function readText(file) { return fs.readFileSync(file, "utf8"); }
-function writeText(file, text) { fs.writeFileSync(file, text, "utf8"); }
+function readText(file) { return fssync.readFileSync(file, "utf8"); } // Use fssync
+function writeText(file, text) { fssync.writeFileSync(file, text, "utf8"); } // Use fssync
 function toLF(s) { return s.replace(/\r\n/g, "\n"); }
 function toCRLF(s) { return s.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n"); }
 function applyEOL(s, mode, originalHadCRLF) {
@@ -267,7 +267,7 @@ export async function handler(args, { workspaceFolder }) {
 
   const projectRoot = args.root ? path.resolve(workspaceFolder, args.root) : workspaceFolder;
   const absFile = path.resolve(projectRoot, args.file);
-  if (!fs.existsSync(absFile)) return `❌ File not found: ${absFile}`;
+  if (!fssync.existsSync(absFile)) return `❌ File not found: ${absFile}`; // Use fssync
 
   const original = readText(absFile);
   const hadCRLF = /\r\n/.test(original);
@@ -386,4 +386,3 @@ export default {
   schema,
   handler
 };
-

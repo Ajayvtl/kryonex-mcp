@@ -25,8 +25,23 @@ const __dirname = dirname(__filename);
 // PROJECT ROOT = parent of build folder
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
+import { openDb } from "./storage/kryonexDb.js";
+
 // ------------ LOGGING (MCP SAFE: STDERR ONLY) ------------
 const logStream = createWriteStream(path.join(__dirname, "server.log"), { flags: "a" });
+
+interface McpContext {
+  projectRoot: string;
+  workspaceFolder: string;
+  serverRoot: string;
+  db?: Awaited<ReturnType<typeof openDb>>; // Make db optional and type it correctly
+}
+
+const kryonexDb = await openDb(PROJECT_ROOT);
+if (!kryonexDb) {
+  console.error("Failed to initialize Kryonex DB. Exiting.");
+  process.exit(1);
+}
 
 const log = (message: string, ...args: any[]) => {
   logStream.write(`[${new Date().toISOString()}] ${message} ${args.map(a => JSON.stringify(a)).join(" ")}\n`);
@@ -185,10 +200,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // ------------ CALL TOOL ------------
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // Build MCP-safe context
-  const context = {
+  const context: McpContext = {
     projectRoot: PROJECT_ROOT,
     workspaceFolder: PROJECT_ROOT,
     serverRoot: __dirname,
+    db: kryonexDb,
   };
 
   switch (request.params.name) {

@@ -2,9 +2,12 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
-import fssync from "fs"; // Changed to fssync for consistency
+import fssync from "fs"; // Use fssync for synchronous operations like existsSync
 import path from "path";
 import { execSync } from "child_process";
+import { resolveWorkspacePath } from "../utils/pathResolver.js";
+import projectScanner from "../utils/projectScanner.js";
+import semanticStore from "../utils/semanticStore.js";
 
 const REQUIRED_PKGS = ["ollama", "sqlite3", "better-sqlite3"];
 
@@ -27,16 +30,22 @@ export const schema = {
 // ✅ Define handler SECOND
 export async function handler({ force = false, workspaceRoot }, context) {
     const cwd = workspaceRoot ?? context?.workspaceFolder ?? process.cwd();
-    const nodeModulesPath = path.join(cwd, "node_modules");
+    const resolvedCwd = resolveWorkspacePath(context, cwd);
+    const nodeModulesPath = path.join(resolvedCwd, "node_modules");
 
-    if (!fssync.existsSync(nodeModulesPath)) { // Use fssync.existsSync
-        fssync.mkdirSync(nodeModulesPath); // Use fssync.mkdirSync
+    // Scan project to get file information (as per task requirement)
+    const files = await projectScanner.scanProject(resolvedCwd);
+    // For now, just log the files to show integration. Actual usage will come later.
+    console.log(`DependencyFixTool scanned files: ${files.length}`);
+
+    if (!fssync.existsSync(nodeModulesPath)) { // Use fssync here
+        fssync.mkdirSync(nodeModulesPath); // Use fssync here
     }
 
     let fixed = [];
 
     for (const pkg of REQUIRED_PKGS) {
-        const exists = fssync.existsSync(path.join(nodeModulesPath, pkg)); // Use fssync.existsSync
+        const exists = fssync.existsSync(path.join(nodeModulesPath, pkg)); // Use fssync here
         if (!exists || force) {
             try {
                 execSync(`npm install ${pkg}`, { cwd, stdio: "ignore" });

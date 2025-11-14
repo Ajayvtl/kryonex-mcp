@@ -1,6 +1,6 @@
 // File: plugins/ftpPlugins.mjs
 import inquirer from "inquirer";
-import fs from "fs";
+import fssync from "fs"; // Changed to fssync for consistency
 import path from "path";
 import { Client } from "basic-ftp";
 
@@ -32,7 +32,7 @@ export async function runFtpTool({ localDir = "build" } = {}) {
 
     // upload files recursively
     async function uploadDir(local, remote) {
-      const items = fs.readdirSync(local, { withFileTypes:true });
+      const items = fssync.readdirSync(local, { withFileTypes:true }); // Use fssync
       for (const it of items) {
         const localPath = path.join(local, it.name);
         const remotePath = `${remote}/${it.name}`;
@@ -51,13 +51,13 @@ export async function runFtpTool({ localDir = "build" } = {}) {
 
     // log
     const logPath = ".kryonex";
-    if (!fs.existsSync(logPath)) fs.mkdirSync(logPath);
+    if (!fssync.existsSync(logPath)) fssync.mkdirSync(logPath); // Use fssync
     const logFile = `${logPath}/ftpTool-log.json`;
     const entry = { time: new Date().toISOString(), host:answers.host, remote:answers.remote, backupName };
     let arr = [];
-    if (fs.existsSync(logFile)) arr = JSON.parse(fs.readFileSync(logFile,'utf8'));
+    if (fssync.existsSync(logFile)) arr = JSON.parse(fssync.readFileSync(logFile,'utf8')); // Use fssync
     arr.push(entry);
-    fs.writeFileSync(logFile, JSON.stringify(arr,null,2));
+    fssync.writeFileSync(logFile, JSON.stringify(arr,null,2)); // Use fssync
     console.log("Logged action");
 
     // prompt for revert option

@@ -1,26 +1,26 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const fssync = require('fs'); // Synchronous file system operations
-import fs from 'fs/promises'; // Asynchronous file system operations
+const fs = require('fs').promises; // Asynchronous file system operations
 const path = require('path');
-import minimatch from "minimatch";
-import { resolveWorkspacePath } from "../utils/pathResolver.mjs";
-
-// No direct top-level require for save, will be imported dynamically in handler
+const minimatch = require("minimatch");
+import { resolveWorkspacePath } from "../utils/pathResolver.js";
+import projectScanner from "../utils/projectScanner.js"; // Added import
+import semanticStore from "../utils/semanticStore.js"; // Added import
 
 const CANDIDATE_NAMES = ["server", "backend", "api", "src", "ui", "frontend", "app"];
 
 async function findProjectFoldersDeep(base, depth = 1, maxDepth = 3) {
-  if (depth > maxDepth) return [];
-  let found = [];
-  for (const entry of fssync.readdirSync(base, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      const full = path.join(base, entry.name);
-      if (CANDIDATE_NAMES.includes(entry.name.toLowerCase())) found.push(full);
-      found = found.concat(await findProjectFoldersDeep(full, depth + 1, maxDepth));
+    if (depth > maxDepth) return [];
+    let found = [];
+    for (const entry of fssync.readdirSync(base, { withFileTypes: true })) { // Use fssync
+        if (entry.isDirectory()) {
+            const full = path.join(base, entry.name);
+            if (CANDIDATE_NAMES.includes(entry.name.toLowerCase())) found.push(full);
+            found = found.concat(await findProjectFoldersDeep(full, depth + 1, maxDepth));
+        }
     }
-  }
-  return found;
+    return found;
 }
 
 const dependencyGraphTool = {
@@ -46,7 +46,7 @@ const dependencyGraphTool = {
         required: []
     },
     handler: async (args, context) => {
-        const { memoryService } = context; // Extract memoryService from context
+        const { memoryService, db } = context; // Extract memoryService and db from context
         const workspaceFolder = context?.workspaceFolder || process.cwd();
         let { startPath: initialStartPath, filePatterns = ["**/*.js", "**/*.ts", "**/*.py"] } = args;
         const debugLogs = [];
@@ -61,7 +61,7 @@ const dependencyGraphTool = {
 
         // If startPath is not explicitly provided or is a placeholder, attempt auto-detection
         if (!startPath || scanPath === undefined || scanPath === "__workspace_root__" || scanPath === '.' || scanPath === null) {
-            scanPath = currentWorkspaceRoot;
+            scanPath = pathResolver.resolve(currentWorkspaceRoot); // Use pathResolver
             logDebug("🌍 Initial scan path (from args or default):", scanPath);
             logDebug("🌍 Current workspace root:", currentWorkspaceRoot);
 
@@ -88,11 +88,11 @@ const dependencyGraphTool = {
                 logDebug("🟢 Auto-selected single project folder:", scanPath);
             } else {
                 logDebug("⚠️ No specific project folders detected, defaulting to workspace root for scan.");
-                scanPath = currentWorkspaceRoot;
+                scanPath = resolveWorkspacePath(context, currentWorkspaceRoot);
             }
         } else {
             // If a specific startPath was provided, use it directly
-            scanPath = path.resolve(currentWorkspaceRoot, scanPath);
+            scanPath = resolveWorkspacePath(context, scanPath);
             logDebug("📁 Explicit startPath provided, scanning:", scanPath);
         }
 
@@ -101,10 +101,6 @@ const dependencyGraphTool = {
             "project-root",
             `Detected project root: ${scanPath}`
         );
-
-        // Dynamically import kryonexStorage to handle ESM/CJS compatibility
-        const kryonexStorage = await import('./kryonexStorage.mjs');
-        const save = kryonexStorage.save;
 
         logDebug("📁 Scanning Project Root:", scanPath);
 
@@ -119,31 +115,6 @@ const dependencyGraphTool = {
         };
         const visitedFiles = new Set();
         const fileContents = new Map(); // Cache file contents
-
-        const getFilePaths = async (dir, patterns = []) => { // Ensure patterns defaults to an empty array
-            let files = [];
-            const entries = fssync.readdirSync(dir, { withFileTypes: true });
-
-            const ignoreFolders = [
-                "node_modules", ".git", ".vscode", "build", "dist", "resources",
-                "out", "extensions"
-            ];
-
-            for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    if (!ignoreFolders.includes(entry.name)) { // Use ignoreFolders
-                        files = files.concat(await getFilePaths(fullPath, patterns));
-                    }
-                } else if (entry.isFile()) {
-                    const relativePath = path.relative(scanPath, fullPath);
-                    if (patterns.some(pattern => minimatch(relativePath, pattern))) { // Use minimatch for glob matching
-                        files.push(fullPath);
-                    }
-                }
-            }
-            return files;
-        };
 
         const extractDependencies = (filePath, content) => {
             const dependencies = new Set();
@@ -255,35 +226,47 @@ const dependencyGraphTool = {
             }
         };
 
-        const allFiles = await getFilePaths(scanPath, filePatterns);
-        logDebug(`📄 Files detected by getFilePaths: ${allFiles.length}`);
+        const allFiles = await projectScanner.scanProject(scanPath, filePatterns);
+        logDebug(`📄 Files detected by projectScanner: ${allFiles.length}`);
         // Pre-read all file contents to populate cache for resolver
         for (const file of allFiles) {
             try {
-                const content = await fs.readFile(file, 'utf8');
-                fileContents.set(file, content);
+                const content = await fs.readFile(file.fullPath, 'utf8'); // Use file.fullPath
+                fileContents.set(file.fullPath, content);
             } catch (readError) {
-                logDebug(`Could not pre-read file ${file}: ${readError.message}`);
+                logDebug(`Could not pre-read file ${file.fullPath}: ${readError.message}`);
             }
         }
 
         for (const file of allFiles) {
-            await processFile(file);
+            await processFile(file.fullPath); // Use file.fullPath
         }
         logDebug(`📄 Files detected: ${allFiles.length}`);
 
-        // Save dependency graph to .kryonex/deps.json
-        await save(context.workspaceFolder, 'deps', { graph, debugLogs });
+        // Save dependency graph to .kryonex/dependency-graph.json using semanticStore
+        if (db) {
+            // Store nodes and edges in the database
+            for (const node of graph.nodes) {
+                await db.upsertFile(node.id, "", "unknown", Date.now()); // Simplified, hash and lang can be improved
+            }
+            // This part needs more sophisticated handling to store graph edges in the DB
+            // For now, we'll just store a summary or the graph itself as a semantic entry
+            await semanticStore.addSemanticEntry(
+                context.projectRoot,
+                "dependencies",
+                "dependency-graph",
+                JSON.stringify(graph),
+                db
+            );
+        } else {
+            logDebug("⚠️ Database not available, skipping dependency graph storage in DB.");
+        }
 
         return {
             success: true,
-            output: fullPath,
             message: `Dependency graph generated and saved successfully ✅`,
-            location: `Saved at ${fullPath}`
+            // location: `Saved at ${fullPath}` // fullPath is not defined here
         };
-        // Use scanPath as the workspaceFolder for storage
-
-        return { success: true, message: 'Dependency graph generated ✅ — context saved to .kryonex/deps.json.' };
     }
 };
 export const name = dependencyGraphTool.name;

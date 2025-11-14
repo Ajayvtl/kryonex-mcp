@@ -118,6 +118,7 @@ export async function getProjectStorePaths(projectRoot) {
     toolsConfigPath: path.join(kxRoot, "tools-config.json"), // New tools config path
     vectorStorePath: path.join(kxRoot, "vector-store", "vectors.json"),
     memoryStorePath: path.join(kxRoot, "memory-store", "memory.json"),
+    dependencyGraphPath: path.join(kxRoot, "dependency-graph.json"), // New dependency graph path
     logsPath: path.join(kxRoot, "logs"),
     cachePath: path.join(kxRoot, "cache"),
   };
