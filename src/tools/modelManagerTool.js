@@ -1,4 +1,3 @@
-import { z } from "zod";
 import fs from "fs/promises"; // Use fs/promises for async operations
 import fssync from "fs"; // For existsSync
 import path from "path";
@@ -59,11 +58,18 @@ export default {
   name: "model_manager",
   description: "Manage local ML models for Kryonex MCP",
 
-  schema: z.object({
-    action: z.enum(["list", "download", "delete", "switch"]),
-    modelName: z.string().optional(),
-    modelType: z.enum(["text", "code"]).optional(), // Added modelType for switching
-  }),
+  schema: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["list", "download", "delete", "switch"],
+      },
+      modelName: { type: "string", optional: true },
+      modelType: { type: "string", enum: ["text", "code"], optional: true },
+    },
+    required: ["action"],
+  },
 
   handler: async (args, context) => {
     const projectRoot = context.projectRoot;

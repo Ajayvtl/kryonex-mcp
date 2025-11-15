@@ -1,6 +1,7 @@
 import fs from "fs/promises"; // Use fs/promises for async operations
 import path from "path";
-import { z } from "zod";
+import fs from "fs/promises"; // Use fs/promises for async operations
+import path from "path";
 import { scanProject } from "../utils/projectScanner.js"; // Import scanProject
 import { analyzeCodebase } from "../controllers/codeIntelligence/analyzeCodebase.js"; // Assuming this is the projectAnalyzer
 import { loadToolsConfig, saveToolsConfig, loadActiveModels } from "../models/kryonexStorage.js"; // Import config and model loading functions
@@ -9,17 +10,24 @@ export default {
   name: "project_selector",
   description: "Select active project in multi-project workspace",
 
-  schema: z.object({
-    action: z.enum(["list", "set"]),
-    projectName: z.string().optional()
-  }),
+  schema: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["list", "set"],
+      },
+      projectName: { type: "string", optional: true },
+    },
+    required: ["action"],
+  },
 
   handler: async (args, context) => {
     const projectRoot = context.projectRoot;
     let toolsConfig = await loadToolsConfig(projectRoot);
 
     if (args.action === "list") {
-      const scannedProjects = await scanProjects(projectRoot);
+      const scannedProjects = await scanProject(projectRoot);
       const projectsWithMetadata = [];
 
       for (const projectPath of scannedProjects) {
@@ -38,7 +46,7 @@ export default {
     if (args.action === "set") {
       if (!args.projectName) throw new Error("projectName is required");
 
-      const scannedProjects = await scanProjects(projectRoot);
+      const scannedProjects = await scanProject(projectRoot);
       const targetProjectPath = scannedProjects.find(p => path.basename(p) === args.projectName);
 
       if (!targetProjectPath) {

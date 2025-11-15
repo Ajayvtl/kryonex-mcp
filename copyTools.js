@@ -1,64 +1,43 @@
+// copyTools.js
+// Copies runtime source files into build directory so the built package contains tools, system, agents, controllers, storage, utils.
+
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const SRC = "src";
-const BUILD = "build";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const DIRECTORIES_TO_COPY = [
-  "controllers",
-  "models",
-  "core",
-  "plugins",
-  "utils",
-  "storage" // Add storage directory
-];
-
-// Specific files to copy from src/tools to build/tools
-const TOOLS_TO_COPY = [
-  "dependencyFixTool.js",
-  "dependencyGraphTool.js",
-  "languageServerTool.js"
-];
-
-// Copy JS/MJS/JSON only – TS is compiled by tsc
-function copyRecursive(srcDir, destDir) {
-  if (!fs.existsSync(srcDir)) return;
-
-  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-
-  for (const item of fs.readdirSync(srcDir)) {
-    const srcPath = path.join(srcDir, item);
-    const destPath = path.join(destDir, item);
-
-    const stat = fs.statSync(srcPath);
-
-    if (stat.isDirectory()) {
-      copyRecursive(srcPath, destPath);
-    } else {
-      if (srcPath.endsWith(".js") || srcPath.endsWith(".mjs") || srcPath.endsWith(".json")) {
-        fs.copyFileSync(srcPath, destPath);
-      }
+function copyRecursiveSync(src, dest) {
+  if (!fs.existsSync(src)) return;
+  if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyRecursiveSync(srcPath, destPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(srcPath, destPath);
     }
   }
 }
 
-for (const dir of DIRECTORIES_TO_COPY) {
-  copyRecursive(path.join(SRC, dir), path.join(BUILD, dir));
-}
+const pairs = [
+  { src: path.join(__dirname, "src", "tools"), dest: path.join(__dirname, "build", "tools") },
+  { src: path.join(__dirname, "src", "system"), dest: path.join(__dirname, "build", "system") },
+  { src: path.join(__dirname, "src", "agents"), dest: path.join(__dirname, "build", "agents") },
+  { src: path.join(__dirname, "src", "controllers"), dest: path.join(__dirname, "build", "controllers") },
+  { src: path.join(__dirname, "src", "storage"), dest: path.join(__dirname, "build", "storage") },
+  { src: path.join(__dirname, "src", "utils"), dest: path.join(__dirname, "build", "utils") },
+  { src: path.join(__dirname, "src", "models"), dest: path.join(__dirname, "build", "models") },
+];
 
-// Copy specific tools
-const toolsSrcDir = path.join(SRC, "tools");
-const toolsBuildDir = path.join(BUILD, "tools");
-if (!fs.existsSync(toolsBuildDir)) fs.mkdirSync(toolsBuildDir, { recursive: true });
-
-for (const toolFile of TOOLS_TO_COPY) {
-  const srcPath = path.join(toolsSrcDir, toolFile);
-  const destPath = path.join(toolsBuildDir, toolFile);
-  if (fs.existsSync(srcPath)) {
-    fs.copyFileSync(srcPath, destPath);
-  } else {
-    console.warn(`Tool file not found: ${srcPath}`);
+for (const p of pairs) {
+  try {
+    copyRecursiveSync(p.src, p.dest);
+    console.error(`Copied ${p.src} -> ${p.dest}`);
+  } catch (e) {
+    console.error(`copy failed for ${p.src}`, e && e.message ? e.message : e);
   }
 }
-
-console.log("✔ Copied all assets and tools into build/");

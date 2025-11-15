@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { exec } from "child_process"; // Use async exec
 import fs from "fs/promises"; // Use fs/promises for async operations
 import fssync from "fs"; // For existsSync
@@ -24,7 +23,10 @@ export default {
   name: "system_health",
   description: "Check system readiness for Kryonex MCP",
 
-  schema: z.object({}),
+  schema: {
+    type: "object",
+    properties: {},
+  },
 
   handler: async (_, context) => {
     const root = context.projectRoot;

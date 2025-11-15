@@ -2,6 +2,10 @@
 /**
  * Simple wrapper exposing rectifier functionality
  */
+/**
+ * @param {object} [opts]
+ * @param {any} [opts.rectifier]
+ */
 export default function createRectifierAgent({ rectifier = null } = {}) {
   return {
     name: "rectifierAgent",

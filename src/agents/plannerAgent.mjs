@@ -7,6 +7,14 @@
  * Plan JSON expected: [ { id, description, tool, args, dependsOn: [] } ]
  */
 
+/**
+ * @param {object} [opts]
+ * @param {any} [opts.ollamaTool]
+ * @param {import('../system/workflowEngine.mjs').default} [opts.workflowEngine]
+ * @param {import('../system/toolRunner.mjs').default} [opts.toolRunner]
+ * @param {import('../system/taskManager.mjs').default} [opts.taskManager]
+ * @param {import('../system/eventBus.mjs').default} [opts.eventBus]
+ */
 export default function createPlannerAgent({ ollamaTool = null, workflowEngine = null, toolRunner = null, taskManager = null, eventBus = null } = {}) {
   if (!ollamaTool || typeof ollamaTool.handler !== "function") {
     // Provide a fallback planner that errors explicitly to avoid silent surprises

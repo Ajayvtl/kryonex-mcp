@@ -1,14 +1,28 @@
 #!/usr/bin/env node
+/**
+ * src/index.ts
+ * Production MCP bootstrap — Option B (Smart Mode / CLINE-style rectifier)
+ *
+ * All tool invocations go through ToolRunner which performs:
+ *  - validator.validateToolCall(...)
+ *  - if rejected -> rectifier.rectify(...) (auto-rectify)
+ *  - if rectified -> run tool with corrected args
+ *  - else -> return MCP error
+ *
+ * Safety: No stdout writes except MCP protocol. Logs -> stderr + server.log.
+ */
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import fs from "fs/promises";
+import fsSync from "fs";
 import path from "path";
 import { createWriteStream } from "fs";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+
 import {
   CallToolRequestSchema,
-  ListResourcesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
@@ -17,250 +31,242 @@ import {
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 
+// tools
 import ollamaTool from "./tools/ollamaTool.js";
+
+// system modules (assume present under src/system)
+import EventBus from "./system/eventBus.mjs";
+import TaskManager from "./system/taskManager.mjs";
+import WorkflowEngine from "./system/workflowEngine.mjs";
+import { InMemoryQueue } from "./system/taskQueue.mjs";
+import ToolRunner from "./system/toolRunner.mjs";
+import createValidator from "./system/validator.mjs";
+import createRectifier from "./system/rectifier.mjs";
+
+// agents
+import createPlannerAgent from "./agents/plannerAgent.mjs";
+import createInvestigatorAgent from "./agents/investigatorAgent.mjs";
+import createRectifierAgent from "./agents/rectifierAgent.mjs";
+
+// storage (exact function names are used)
+import { openDb } from "./storage/kryonexDb.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// PROJECT ROOT = parent of build folder
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
-import { openDb } from "./storage/kryonexDb.js";
+// --- logging (stderr + server.log) ---
+const LOG_PATH = path.join(__dirname, "server.log");
+const logStream = createWriteStream(LOG_PATH, { flags: "a" });
 
-// ------------ LOGGING (MCP SAFE: STDERR ONLY) ------------
-const logStream = createWriteStream(path.join(__dirname, "server.log"), { flags: "a" });
-
-interface McpContext {
-  projectRoot: string;
-  workspaceFolder: string;
-  serverRoot: string;
-  db?: Awaited<ReturnType<typeof openDb>>; // Make db optional and type it correctly
+function writeLog(level: "INFO" | "WARN" | "ERROR", msg: string, ...args: any[]) {
+  try {
+    logStream.write(`[${new Date().toISOString()}] ${level}: ${msg} ${args.map(a => {
+      try { return JSON.stringify(a); } catch { return String(a); }
+    }).join(" ")}\n`);
+  } catch { /* ignore */ }
+  // human output - stderr only
+  console.error(`${level}: ${msg}`, ...args);
 }
 
-const kryonexDb = await openDb(PROJECT_ROOT);
-if (!kryonexDb) {
-  console.error("Failed to initialize Kryonex DB. Exiting.");
+const log = (m: string, ...a: any[]) => writeLog("INFO", m, ...a);
+const warn = (m: string, ...a: any[]) => writeLog("WARN", m, ...a);
+const errorLog = (m: string, ...a: any[]) => writeLog("ERROR", m, ...a);
+
+// ensure .kryonex exists
+const KRYONEX_DIR = path.join(PROJECT_ROOT, ".kryonex");
+if (!fsSync.existsSync(KRYONEX_DIR)) fsSync.mkdirSync(KRYONEX_DIR, { recursive: true });
+
+// --- open DB ---
+log("Opening Kryonex DB...");
+let kryonexDb: any;
+try {
+  kryonexDb = await openDb(path.join(PROJECT_ROOT, ".kryonex", "db.sqlite"));
+  log("DB opened successfully");
+} catch (e) {
+  errorLog("Failed to open DB:", e instanceof Error ? e.message : String(e));
   process.exit(1);
 }
 
-const log = (message: string, ...args: any[]) => {
-  logStream.write(`[${new Date().toISOString()}] ${message} ${args.map(a => JSON.stringify(a)).join(" ")}\n`);
-  console.error(message, ...args); // STDERR only
-};
-
-const warn = (message: string, ...args: any[]) => {
-  logStream.write(`[${new Date().toISOString()}] WARN: ${message} ${args.map(a => JSON.stringify(a)).join(" ")}\n`);
-  console.error(`WARN: ${message}`, ...args); // MUST be stderr
-};
-
-// ------------ IN-MEMORY NOTES (EXAMPLE) ------------
-type Note = { title: string; content: string };
-
-const notes: Record<string, Note> = {
-  "1": { title: "First Note", content: "This is note 1" },
-  "2": { title: "Second Note", content: "This is note 2" },
-};
-
-// ------------ DYNAMIC TOOL LOADING ------------
-const toolHandlers: Record<string, any> = {};
+// --- dynamic tool loader ---
+export const toolHandlers: Record<string, any> = {};
 
 async function loadTools() {
   const toolsDir = path.join(__dirname, "tools");
-  log(`Loading tools from: ${toolsDir}`);
-
-  const files = await fs.readdir(toolsDir);
-
-  for (const file of files) {
-    if (!file.endsWith(".js")) continue;
-    try {
-      const toolModule = await import(`./tools/${file}`);
-
-      if (
-        toolModule.default &&
-        toolModule.default.name &&
-        toolModule.default.schema &&
-        toolModule.default.handler
-      ) {
-        toolHandlers[toolModule.default.name] = toolModule.default.handler;
-        log(`Loaded tool: ${toolModule.default.name}`);
-      } else {
-        warn(`Invalid tool file: ${file}`);
+  log("Loading tools from", toolsDir);
+  try {
+    const entries = await fs.readdir(toolsDir);
+    for (const f of entries) {
+      if (!f.endsWith(".js")) continue;
+      try {
+        const mod = await import(`./tools/${f}`);
+        const def = mod.default || mod;
+        if (!def || !def.name || typeof def.handler !== "function") {
+          warn(`Tool ./tools/${f} missing proper export { name, handler }`);
+          continue;
+        }
+        toolHandlers[def.name] = def.handler;
+        def.handler.description = def.description || def.handler.description || "";
+        def.handler.schema = def.schema || def.handler.schema || { type: "object" };
+        log(`Loaded tool ${def.name}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warn(`Failed to import tool ${f}: ${msg}`);
       }
-    } catch (err) {
-      warn(`Failed to load tool ${file}:`, err);
     }
+  } catch (err) {
+    warn("tools directory read failed:", err instanceof Error ? err.message : String(err));
   }
 }
 
 await loadTools();
 
-// Explicitly add ollama tool
+// ensure ollama tool registered if available
+try {
+  if (ollamaTool && ollamaTool.name && typeof ollamaTool.handler === "function") {
+    toolHandlers[ollamaTool.name] = ollamaTool.handler;
+    log(`Registered ollama tool: ${ollamaTool.name}`);
+  }
+} catch (e) { warn("ollama registration failed:", e instanceof Error ? e.message : String(e)); }
 
+// --- instantiate system services ---
+const eventBus = new EventBus({ db: kryonexDb, semanticStore: null });
+const taskManager = new TaskManager({ db: kryonexDb, eventBus });
 
-// ------------ MCP SERVER SETUP ------------
+try {
+  await taskManager.loadFromDb();
+  log("Loaded tasks from DB");
+} catch (e) {
+  warn("taskManager.loadFromDb failed", e instanceof Error ? e.message : String(e));
+}
+
+const workflow = new WorkflowEngine({ taskManager, eventBus, db: kryonexDb, concurrency: 4 });
+const taskQueue = new InMemoryQueue();
+
+const validator = createValidator({ ollamaTool });
+const rectifier = createRectifier({ ollamaTool });
+
+const toolRunner = new ToolRunner({ taskManager, eventBus, db: kryonexDb, semanticStore: null, validator, rectifier });
+
+// agents
+const plannerAgent = createPlannerAgent({ ollamaTool, workflowEngine: workflow, toolRunner, taskManager, eventBus });
+const investigatorAgent = createInvestigatorAgent({ toolRunner, taskManager, eventBus });
+const rectifierAgent = createRectifierAgent({ rectifier });
+
+// expose global (ensure src/types/global.d.ts declares these)
+global.__KRYONEX_EVENTBUS = eventBus;
+global.__KRYONEX_TASKQUEUE = taskQueue;
+global.__KRYONEX_WORKFLOW = workflow;
+global.__KRYONEX_TOOLRUNNER = toolRunner;
+global.__KRYONEX_DB = kryonexDb;
+global.__KRYONEX_AGENTS = { plannerAgent, investigatorAgent, rectifierAgent };
+
+// --- MCP server setup ---
 const server = new Server(
-  {
-    name: "kryonex mcp",
-    version: "0.1.0",
-  },
+  { name: "kryonex mcp", version: "0.1.0" },
   {
     capabilities: {
-      tools: {},
-      resources: {},
-      prompts: {},
+      tools: { listChanged: true },
+      resources: { listChanged: true, subscribe: true },
+      prompts: { listChanged: true },
     },
   }
 );
 
-
-// ------------ RESOURCE LISTING ------------
-server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-  resources: Object.entries(notes).map(([id, note]) => ({
-    uri: `note:///${id}`,
-    mimeType: "text/plain",
-    name: note.title,
-    description: `A text note: ${note.title}`,
-  })),
-}));
-
-// ------------ RESOURCE READING ------------
+// minimal resource read stub (never print to stdout)
 server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
-  const url = new URL(req.params.uri);
-  const id = url.pathname.replace(/^\//, "");
-  const note = notes[id];
-
-  if (!note) throw new Error(`Note ${id} not found`);
-
-  return {
-    contents: [{ uri: req.params.uri, mimeType: "text/plain", text: note.content }],
-  };
+  throw new Error("Resource reading is not implemented");
 });
 
-// ------------ LIST TOOLS ------------
-// server.setRequestHandler(ListToolsRequestSchema, async () => ({
-//   tools: [
-//     {
-//       name: "create_note",
-//       description: "Create a new note",
-//       inputSchema: {
-//         type: "object",
-//         properties: {
-//           title: { type: "string" },
-//           content: { type: "string" },
-//         },
-//         required: ["title", "content"],
-//       },
-//     },
-//     {
-//       name: ollamaTool.name,
-//       description: ollamaTool.description,
-//       inputSchema: ollamaTool.schema,
-//     },
-//   ],
-// }));
-
+// list tools (include agents)
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  const dynamicTools = Object.entries(toolHandlers).map(([name, handler]) => ({
+  const dynamic = Object.entries(toolHandlers).map(([name, handler]) => ({
     name,
-    description: handler?.description || "No description",
-    inputSchema: handler?.schema || { type: "object" },
+    description: handler.description || "No description",
+    inputSchema: handler.schema || { type: "object" as const },
   }));
-
-  return {
-    tools: [
-      // static tool
-      {
-        name: "create_note",
-        description: "Create a new note",
-        inputSchema: {
-          type: "object",
-          properties: {
-            title: { type: "string" },
-            content: { type: "string" },
-          },
-          required: ["title", "content"],
-        },
-      },
-
-      // ollama
-      {
-        name: ollamaTool.name,
-        description: ollamaTool.description,
-        inputSchema: ollamaTool.schema,
-      },
-
-      // dynamic tools from /tools folder
-      ...dynamicTools,
-    ],
-  };
+  const agentTools = [
+    { name: "planner_agent", description: "Planner Agent", inputSchema: { type: "object" as const } },
+    { name: "investigator_agent", description: "Investigator Agent", inputSchema: { type: "object" as const } },
+  ];
+  return { tools: [...agentTools, ...dynamic] };
 });
 
-
-
-// ------------ CALL TOOL ------------
+// CALL TOOL handler (smart mode)
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  // Build MCP-safe context
-  const context: McpContext = {
+  const context = {
     projectRoot: PROJECT_ROOT,
     workspaceFolder: PROJECT_ROOT,
     serverRoot: __dirname,
     db: kryonexDb,
+    toolHandlers,
+    system: { eventBus, workflow, taskQueue, toolRunner },
+    agents: global.__KRYONEX_AGENTS,
   };
 
-  switch (request.params.name) {
-    case "create_note": {
-      const t = request.params.arguments?.title;
-      const c = request.params.arguments?.content;
-      if (!t || !c) throw new McpError(ErrorCode.InvalidParams, "Missing title/content");
-
-      const id = String(Object.keys(notes).length + 1);
-      notes[id] = { title: String(t), content: String(c) };
-
-      return { content: [{ type: "text", text: `Created note ${id}` }] };
+  // agent shortcuts
+  if (request.params.name === "planner_agent") {
+    try {
+      const intent = request.params.arguments?.intent ?? request.params.arguments ?? "run plan";
+      const opts = request.params.arguments?.opts ?? {};
+      const res = await plannerAgent.planAndExecute(intent, context, opts);
+      return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      throw new McpError(ErrorCode.InvalidParams, `Planner failed: ${m}`);
     }
+  }
 
-    default: {
-      const handler = toolHandlers[request.params.name];
-      if (!handler) throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
-
-      const result = await handler(request.params.arguments, context);
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
+  if (request.params.name === "investigator_agent") {
+    try {
+      const payload = request.params.arguments ?? {};
+      const res = await investigatorAgent.analyzeFailure(payload, context);
+      return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      throw new McpError(ErrorCode.InvalidParams, `Investigator failed: ${m}`);
     }
+  }
+
+  // dynamic tool
+  const handler = toolHandlers[request.params.name];
+  if (!handler) throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
+
+  // Smart Mode: validator + rectifier (ToolRunner already calls validator internally,
+  // but we implement an explicit flow to record rectification steps and log them)
+  try {
+    // First attempt via ToolRunner (ToolRunner will call validator and try rectifier internally if configured).
+    // We call toolRunner.call which has validator and rectifier integrated by design.
+    const result = await toolRunner.call(toolHandlers, request.params.name, request.params.arguments ?? {}, context);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (err) {
+    // If ToolRunner throws because validator rejected and rectifier didn't fix, we return an MCP error.
+    const msg = err instanceof Error ? err.message : String(err);
+    // Provide additional guidance in payload (avoid printing to stdout)
+    throw new McpError(ErrorCode.InternalError, `Tool execution failed: ${msg}`);
   }
 });
 
-// ------------ PROMPTS ------------
-server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-  prompts: [{ name: "summarize_notes", description: "Summarize all notes" }],
-}));
-
+// prompts
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [{ name: "summarize_notes", description: "Summarize notes" }] }));
 server.setRequestHandler(GetPromptRequestSchema, async (req) => {
   if (req.params.name !== "summarize_notes") throw new Error("Unknown prompt");
-
-  const embedded = Object.entries(notes).map(([id, note]) => ({
-    role: "user",
-    content: { type: "resource", resource: { uri: `note:///${id}`, mimeType: "text/plain", text: note.content } },
-  }));
-
-  return {
-    messages: [
-      { role: "user", content: { type: "text", text: "Please summarize the following notes:" } },
-      ...embedded,
-    ],
-  };
+  return { messages: [{ role: "user", content: { type: "text", text: "No notes." } }] };
 });
 
-// ------------ START SERVER ------------
+// start
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  log("MCP server running on stdio");
+  try {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    log("MCP server connected (stdio)");
+  } catch (e) {
+    errorLog("MCP server failed to start:", e instanceof Error ? e.stack ?? e.message : String(e));
+    process.exit(1);
+  }
 }
 
-main().catch((err) => {
-  log("Server error:", err);
+main().catch((e) => {
+  errorLog("Unhandled error in main:", e instanceof Error ? e.stack ?? e.message : String(e));
   process.exit(1);
 });

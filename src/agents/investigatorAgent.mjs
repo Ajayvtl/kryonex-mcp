@@ -4,6 +4,12 @@
  * Uses the language lookup, dependency graph, test runner tools via toolRunner
  */
 
+/**
+ * @param {object} [opts]
+ * @param {import('../system/toolRunner.mjs').default} [opts.toolRunner]
+ * @param {import('../system/taskManager.mjs').default} [opts.taskManager]
+ * @param {import('../system/eventBus.mjs').default} [opts.eventBus]
+ */
 export default function createInvestigatorAgent({ toolRunner = null, taskManager = null, eventBus = null } = {}) {
   if (!toolRunner) console.warn("[investigatorAgent] warning: toolRunner not provided");
 

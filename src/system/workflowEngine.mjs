@@ -52,6 +52,13 @@ class SimpleQueue {
 }
 
 class WorkflowEngine {
+  /**
+   * @param {object} [opts]
+   * @param {import('./taskManager.mjs').default} [opts.taskManager]
+   * @param {import('./eventBus.mjs').default} [opts.eventBus]
+   * @param {any} [opts.db]
+   * @param {number} [opts.concurrency]
+   */
   constructor({ taskManager, eventBus, db = null, concurrency = 4 } = {}) {
     this.taskManager = taskManager;
     this.eventBus = eventBus;
